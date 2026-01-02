@@ -1,9 +1,9 @@
-import { useState, useEffect, useRef } from 'react';
-import { Paper, Button, Group, Badge, Stack, Text, Combobox, useCombobox, InputBase, ActionIcon } from '@mantine/core';
+import { useState, useEffect, useRef, useMemo } from 'react';
+import { Paper, Button, Group, Badge, Stack, Text, Combobox, useCombobox, InputBase, ActionIcon, Switch, SegmentedControl } from '@mantine/core';
 import { IconPlugConnected, IconPlugConnectedX, IconRefresh } from '@tabler/icons-react';
 import { useIntl } from 'react-intl';
-import { COMMON_BAUD_RATES } from '../utils/serialUtils';
-import { SerialConnectionConfig, SerialPortOption } from '../types';
+import { COMMON_BAUD_RATES, getLineEndingOptions } from '../utils/serialUtils';
+import { SerialConnectionConfig, SerialPortOption, LineEnding } from '../types';
 import { DEFAULT_LINE_ENDING, DEFAULT_BAUD_RATE } from '../constants';
 
 interface SerialConnectionProps {
@@ -15,6 +15,7 @@ interface SerialConnectionProps {
   availablePorts: SerialPortOption[];
   refreshPorts: () => Promise<void>;
   requestNewPort: () => Promise<SerialPort | null>;
+  setReadConfig: (config: SerialConnectionConfig) => void;
 }
 
 export function SerialConnection({
@@ -26,11 +27,15 @@ export function SerialConnection({
   availablePorts,
   refreshPorts,
   requestNewPort,
+  setReadConfig,
 }: SerialConnectionProps) {
   const intl = useIntl();
   const t = (key: string) => intl.formatMessage({ id: key });
   const [baudRate, setBaudRate] = useState<string>(DEFAULT_BAUD_RATE.toString());
   const [selectedPortId, setSelectedPortId] = useState<string | null>(null);
+  const [readUntilLineEnding, setReadUntilLineEnding] = useState(false);
+  const [readLineEnding, setReadLineEnding] = useState<LineEnding>('crlf');
+  const [readCustomLineEnding, setReadCustomLineEnding] = useState<string>('');
   const pendingPortRef = useRef<SerialPort | null>(null);
   
   const baudRateCombobox = useCombobox({
@@ -40,6 +45,8 @@ export function SerialConnection({
   const portCombobox = useCombobox({
     onDropdownClose: () => portCombobox.resetSelectedOption(),
   });
+
+  const lineEndingOptions = useMemo(() => getLineEndingOptions(t), [t]);
 
   // Auto-select newly requested port when it appears in availablePorts
   useEffect(() => {
@@ -65,8 +72,12 @@ export function SerialConnection({
     const config: SerialConnectionConfig = {
       baudRate: parseInt(baudRate, 10),
       lineEnding: DEFAULT_LINE_ENDING, // Default, will be overridden by DataSender
+      readUntilLineEnding,
+      readLineEnding,
+      readCustomLineEnding: readLineEnding === 'custom' ? readCustomLineEnding : undefined,
     };
     onConfigChange(config);
+    setReadConfig(config);
     try {
       // Find selected port if one is selected
       const selectedPort = selectedPortId 
@@ -229,6 +240,68 @@ export function SerialConnection({
             )}
           </Group>
         </Group>
+        <Switch
+          label={t('serialConnection.readUntilLineEnding')}
+          checked={readUntilLineEnding}
+          onChange={(e) => {
+            const newValue = e.currentTarget.checked;
+            setReadUntilLineEnding(newValue);
+            const config: SerialConnectionConfig = {
+              baudRate: parseInt(baudRate, 10),
+              lineEnding: DEFAULT_LINE_ENDING,
+              readUntilLineEnding: newValue,
+              readLineEnding,
+              readCustomLineEnding: readLineEnding === 'custom' ? readCustomLineEnding : undefined,
+            };
+            onConfigChange(config);
+            setReadConfig(config);
+          }}
+          size="sm"
+        />
+        {readUntilLineEnding && (
+          <Group gap="xs" align="center">
+            <Text size="sm" fw={500}>{t('serialConnection.readLineEnding')}</Text>
+            <SegmentedControl
+              value={readLineEnding}
+              onChange={(value) => {
+                const newReadLineEnding = value as LineEnding;
+                setReadLineEnding(newReadLineEnding);
+                const config: SerialConnectionConfig = {
+                  baudRate: parseInt(baudRate, 10),
+                  lineEnding: DEFAULT_LINE_ENDING,
+                  readUntilLineEnding,
+                  readLineEnding: newReadLineEnding,
+                  readCustomLineEnding: newReadLineEnding === 'custom' ? readCustomLineEnding : undefined,
+                };
+                onConfigChange(config);
+                setReadConfig(config);
+              }}
+              data={lineEndingOptions}
+              size="sm"
+            />
+            {readLineEnding === 'custom' && (
+              <InputBase
+                placeholder={t('serialConnection.customLineEndingPlaceholder')}
+                value={readCustomLineEnding}
+                onChange={(e) => {
+                  const newValue = e.currentTarget.value;
+                  setReadCustomLineEnding(newValue);
+                  const config: SerialConnectionConfig = {
+                    baudRate: parseInt(baudRate, 10),
+                    lineEnding: DEFAULT_LINE_ENDING,
+                    readUntilLineEnding,
+                    readLineEnding,
+                    readCustomLineEnding: newValue,
+                  };
+                  onConfigChange(config);
+                  setReadConfig(config);
+                }}
+                size="sm"
+                style={{ width: 150 }}
+              />
+            )}
+          </Group>
+        )}
       </Stack>
     </Paper>
   );

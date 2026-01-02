@@ -1,7 +1,7 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { notifications } from '@mantine/notifications';
-import { SerialMessage, SerialConnectionConfig, DataFormat, SerialPortOption } from '../types';
-import { bytesToString, stringToBytes } from '../utils/formatConverter';
+import { SerialMessage, SerialConnectionConfig, DataFormat, SerialPortOption, LineEnding } from '../types';
+import { bytesToString, stringToBytes, getLineEndingBytes } from '../utils/formatConverter';
 import { appendLineEnding } from '../utils/serialUtils';
 
 interface UseSerialPortReturn {
@@ -16,6 +16,7 @@ interface UseSerialPortReturn {
   clearMessages: () => void;
   refreshPorts: () => Promise<void>;
   requestNewPort: () => Promise<SerialPort | null>;
+  setReadConfig: (config: SerialConnectionConfig) => void;
   error: string | null;
 }
 
@@ -105,6 +106,29 @@ function showErrorNotification(title: string, message: string): void {
 }
 
 /**
+ * Find line ending in buffer and return the index where it ends, or -1 if not found
+ */
+function findLineEnding(buffer: Uint8Array, lineEnding: LineEnding, custom?: string): number {
+  const endingBytes = getLineEndingBytes(lineEnding, custom);
+  if (endingBytes.length === 0) return -1;
+  
+  // Search for the line ending pattern
+  for (let i = 0; i <= buffer.length - endingBytes.length; i++) {
+    let match = true;
+    for (let j = 0; j < endingBytes.length; j++) {
+      if (buffer[i + j] !== endingBytes[j]) {
+        match = false;
+        break;
+      }
+    }
+    if (match) {
+      return i + endingBytes.length; // Return position after the line ending
+    }
+  }
+  return -1;
+}
+
+/**
  * Create a received message from data
  */
 function createReceivedMessage(data: Uint8Array): SerialMessage {
@@ -182,6 +206,8 @@ export function useSerialPort(): UseSerialPortReturn {
   const readerRef = useRef<ReadableStreamDefaultReader<Uint8Array> | null>(null);
   const writerRef = useRef<WritableStreamDefaultWriter<Uint8Array> | null>(null);
   const portRef = useRef<SerialPort | null>(null);
+  const readBufferRef = useRef<Uint8Array>(new Uint8Array(0)); // Buffer for line-ending mode
+  const readConfigRef = useRef<SerialConnectionConfig | null>(null); // Store read config
 
   // Keep port ref in sync with state
   useEffect(() => {
@@ -343,8 +369,42 @@ export function useSerialPort(): UseSerialPortReturn {
           
           // Process received data
           if (readResult.value?.length) {
-            const message = createReceivedMessage(readResult.value);
-            setMessages(prev => [...prev, message]);
+            const config = readConfigRef.current;
+            const readUntilLineEnding = config?.readUntilLineEnding;
+            
+            if (readUntilLineEnding && config) {
+              // Buffer mode: accumulate data until line ending is found
+              const newBuffer = new Uint8Array(readBufferRef.current.length + readResult.value.length);
+              newBuffer.set(readBufferRef.current);
+              newBuffer.set(readResult.value, readBufferRef.current.length);
+              readBufferRef.current = newBuffer;
+              
+              // Look for the configured line ending in the buffer
+              const lineEndingPos = findLineEnding(
+                readBufferRef.current,
+                config.readLineEnding || 'crlf',
+                config.readCustomLineEnding
+              );
+              
+              if (lineEndingPos >= 0) {
+                // Found line ending, extract message
+                const messageData = readBufferRef.current.slice(0, lineEndingPos);
+                const remainingData = readBufferRef.current.slice(lineEndingPos);
+                
+                if (messageData.length > 0) {
+                  const message = createReceivedMessage(messageData);
+                  setMessages(prev => [...prev, message]);
+                }
+                
+                // Keep remaining data in buffer
+                readBufferRef.current = remainingData;
+              }
+              // If no line ending found, keep buffering
+            } else {
+              // Normal mode: create message immediately
+              const message = createReceivedMessage(readResult.value);
+              setMessages(prev => [...prev, message]);
+            }
           }
         }
       } catch (readError) {
@@ -433,6 +493,15 @@ export function useSerialPort(): UseSerialPortReturn {
   }, [cleanupExistingConnection, requestNewPort, refreshPorts, openPort, setupWriter, setupReader, startReadLoop]);
 
   /**
+   * Set read configuration (for line ending detection)
+   */
+  const setReadConfig = useCallback((config: SerialConnectionConfig): void => {
+    readConfigRef.current = config;
+    // Clear buffer when config changes
+    readBufferRef.current = new Uint8Array(0);
+  }, []);
+
+  /**
    * Disconnect from serial port
    */
   const disconnect = useCallback(async (): Promise<void> => {
@@ -440,6 +509,9 @@ export function useSerialPort(): UseSerialPortReturn {
       setError(null);
       setIsConnected(false);
       setPortName(null);
+      
+      // Clear read buffer
+      readBufferRef.current = new Uint8Array(0);
       
       // Clean up resources in order
       await cancelReader(readerRef.current);
@@ -552,6 +624,7 @@ export function useSerialPort(): UseSerialPortReturn {
     clearMessages,
     refreshPorts,
     requestNewPort,
+    setReadConfig,
     error,
   };
 }

@@ -5,6 +5,90 @@ import { useIntl } from 'react-intl';
 import { SerialMessage, DataFormat, SerialConnectionConfig } from '../types';
 import { bytesToString } from '../utils/formatConverter';
 
+/**
+ * Highlight CR and LF characters in the display text
+ */
+function highlightLineEndings(text: string, format: DataFormat): React.ReactNode {
+  if (format === 'hex') {
+    // For hex format, highlight 0D (CR) and 0A (LF) as complete hex bytes
+    // Hex format is space-separated like "ff 0d 0a 00"
+    const parts: React.ReactNode[] = [];
+    const words = text.split(/(\s+)/); // Split by whitespace but keep separators
+    
+    for (let i = 0; i < words.length; i++) {
+      const word = words[i];
+      const upperWord = word.toUpperCase();
+      
+      if (upperWord === '0D' || upperWord === '0A') {
+        const isCR = upperWord === '0D';
+        parts.push(
+          <span
+            key={i}
+            style={{
+              backgroundColor: isCR ? 'var(--mantine-color-orange-2)' : 'var(--mantine-color-cyan-2)',
+              color: isCR ? 'var(--mantine-color-orange-9)' : 'var(--mantine-color-cyan-9)',
+              padding: '2px 4px',
+              borderRadius: '3px',
+              fontWeight: 600,
+            }}
+            title={isCR ? 'Carriage Return (CR, \\r, 0x0D)' : 'Line Feed (LF, \\n, 0x0A)'}
+          >
+            {word}
+          </span>
+        );
+      } else {
+        parts.push(word);
+      }
+    }
+    
+    return parts.length > 0 ? parts : text;
+  } else if (format === 'ascii' || format === 'utf8') {
+    // For ASCII/UTF-8, highlight actual \r and \n characters
+    const parts: React.ReactNode[] = [];
+    let lastIndex = 0;
+    
+    for (let i = 0; i < text.length; i++) {
+      const char = text[i];
+      if (char === '\r' || char === '\n') {
+        // Add text before this character
+        if (i > lastIndex) {
+          parts.push(text.substring(lastIndex, i));
+        }
+        
+        // Add highlighted character
+        const isCR = char === '\r';
+        parts.push(
+          <span
+            key={i}
+            style={{
+              backgroundColor: isCR ? 'var(--mantine-color-orange-2)' : 'var(--mantine-color-cyan-2)',
+              color: isCR ? 'var(--mantine-color-orange-9)' : 'var(--mantine-color-cyan-9)',
+              padding: '2px 4px',
+              borderRadius: '3px',
+              fontWeight: 600,
+            }}
+            title={isCR ? 'Carriage Return (CR, \\r)' : 'Line Feed (LF, \\n)'}
+          >
+            {isCR ? '\\r' : '\\n'}
+          </span>
+        );
+        
+        lastIndex = i + 1;
+      }
+    }
+    
+    // Add remaining text
+    if (lastIndex < text.length) {
+      parts.push(text.substring(lastIndex));
+    }
+    
+    return parts.length > 0 ? parts : text;
+  } else {
+    // For other formats, return as-is
+    return text;
+  }
+}
+
 interface MessageItemProps {
   message: SerialMessage;
   onResend?: (data: string, format: DataFormat, config: SerialConnectionConfig) => Promise<void>;
@@ -20,6 +104,7 @@ function MessageItemComponent({ message, onResend, isConnected, currentConfig, d
   // Memoize expensive calculations
   const formatToUse = useMemo(() => displayFormat || message.format, [displayFormat, message.format]);
   const displayText = useMemo(() => bytesToString(message.data, formatToUse), [message.data, formatToUse]);
+  const highlightedText = useMemo(() => highlightLineEndings(displayText, formatToUse), [displayText, formatToUse]);
   const isSent = useMemo(() => message.type === 'sent', [message.type]);
   const canResend = useMemo(
     () => isSent && isConnected && message.originalData && onResend && currentConfig,
@@ -89,7 +174,7 @@ function MessageItemComponent({ message, onResend, isConnected, currentConfig, d
                 backgroundColor: isSent ? 'var(--mantine-color-blue-0)' : 'var(--mantine-color-green-0)',
               }}
             >
-              {displayText}
+              {highlightedText}
             </Code>
             <ActionIcon
               variant="subtle"

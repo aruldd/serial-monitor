@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Stack, Divider } from '@mantine/core';
 import Split from 'react-split';
 import { useSerialPort } from './hooks/useSerialPort';
@@ -23,12 +23,18 @@ function App() {
     availablePorts,
     refreshPorts,
     requestNewPort,
+    setReadConfig,
   } = useSerialPort();
 
   const [config, setConfig] = useState<SerialConnectionConfig>({
     baudRate: DEFAULT_BAUD_RATE,
     lineEnding: DEFAULT_LINE_ENDING,
   });
+
+  // Update read config when config changes
+  useEffect(() => {
+    setReadConfig(config);
+  }, [config, setReadConfig]);
 
 
   return (
@@ -67,6 +73,7 @@ function App() {
               availablePorts={availablePorts}
               refreshPorts={refreshPorts}
               requestNewPort={requestNewPort}
+              setReadConfig={setReadConfig}
             />
             <Divider />
             <DataSender

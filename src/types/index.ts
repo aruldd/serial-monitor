@@ -22,6 +22,9 @@ export interface SerialConnectionConfig {
   baudRate: number;
   lineEnding: LineEnding;
   customLineEnding?: string;
+  readUntilLineEnding?: boolean; // Read messages until line ending is detected
+  readLineEnding?: LineEnding; // Which line ending to read until
+  readCustomLineEnding?: string; // Custom line ending for reading
 }
 
 export interface FormatConversionResult {

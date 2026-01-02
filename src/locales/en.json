@@ -21,7 +21,10 @@
     "selectPort": "Select Port",
     "noPortsAvailable": "No ports available",
     "requestNewPort": "Request New Port",
-    "refreshPorts": "Refresh"
+    "refreshPorts": "Refresh",
+    "readUntilLineEnding": "Read until line ending",
+    "readLineEnding": "Read until",
+    "customLineEndingPlaceholder": "Enter custom line ending"
   },
   "dataSender": {
     "title": "SEND DATA",
